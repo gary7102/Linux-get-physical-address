@@ -107,13 +107,12 @@ int main() {
     return 0;
 }
 ```
-line 17傳入`&input`及`&output`，分別對應system call 的`int __user *, input`及`int __user *, output`，
-若正確複製則回傳值為0
-而user space的`output`已經在`copy_to_user()`時寫入新資料。
+line 17傳入`&input`及`&output`，分別對應system call 的`int __user *, input`及`int __user *, output`，若正確複製則回傳值為0  
+而user space的`output`已經在`copy_to_user()`時寫入新資料。  
 
 
-**<font size = 4>執行結果</font>**
-![image](https://hackmd.io/_uploads/HyF41Ysl1g.png)
+**<font size = 4>執行結果 :</font>**  
+![image](https://hackmd.io/_uploads/HyF41Ysl1g.png)  
 
 system call 正確呼叫且輸出計算結果
 
@@ -132,7 +131,7 @@ Page table 一般來說可以分為兩種結構，32 bit cpu使用4-level(10-10-
     - PMD (Page Middle Directory)
     - PTE （page table entry）
     
-使用4-level page table 為例:
+使用4-level page table 為例:  
 
 ![linux_paging](https://hackmd.io/_uploads/rkIiRAVxJx.jpg)
 
@@ -147,7 +146,7 @@ Page table 一般來說可以分為兩種結構，32 bit cpu使用4-level(10-10-
 因此要從logical address轉換為physical address，需要一層一層下去查表，
 順序為: `pgd_t` -> `p4d_t` -> `pud_t` -> `pmd_t` -> `pte_t`
 
-其中舉例，若要查`p4d`的base address則需要`pgd_t + p4d_index`
+其中舉例，若要查`p4d`的base address則需要`pgd_t + p4d_index`  
 ``` c=1 
 pgd_t *pgd;
 p4d_t *p4d;
@@ -155,14 +154,14 @@ p4d_t *p4d;
 pgd = pgd_offset(current->mm, vaddr);
 p4d = p4d_offset(pgd, vaddr);
 ```
-同理，若要查`pte`的base address則需要`pmd_t + ptd_index`
+同理，若要查`pte`的base address則需要`pmd_t + ptd_index`  
 ```c=1
 ptd_t *pte;
 
 pte = pte_offset(pmd, vaddr);
 ```
 
-我們可以直接到 [bootlin](https://elixir.bootlin.com/linux/v5.15.137/source/include/linux/pgtable.h#L88) 中看到這些offset function 的實作細節
+我們可以直接到 [bootlin](https://elixir.bootlin.com/linux/v5.15.137/source/include/linux/pgtable.h#L88) 中看到這些offset function 的實作細節  
 
 ```c
 // include/linux/pgtable.h line 88
@@ -207,7 +206,7 @@ static inline pgd_t *pgd_offset_pgd(pgd_t *pgd, unsigned long address)
 #define pgd_offset(mm, address)		pgd_offset_pgd((mm)->pgd, (address))
 #endif
 ```
-對應到前一張圖，找到前一層的Directory offset再加上當前Directory的 index，一層一層去找
+對應到前一張圖，找到前一層的Directory offset再加上當前Directory的 index，一層一層去找  
 
 不過發現`p4d_offset`的實作細節沒有出現在這，但是`pud_offset`傳入的參數卻是`p4d_t *p4d`，後來在`arch/x86/include/asm/pgtable.h line 926`中找到
 ```c=926
@@ -221,17 +220,16 @@ static inline p4d_t *p4d_offset(pgd_t *pgd, unsigned long address)
         return (p4d_t *)pgd_page_vaddr(*pgd) + p4d_index(address);
 }
 ```
-其中`pgtable_l5_enabled()`check whether 5-level page table is enabled。因此如果系統使用的是4-level，則無需存取 `p4d_t`，且直接回傳以`(p4d_t*) pgd`，
-也就是說在4-level下 `pgd` = `p4d`
-相同道理，3-level下 `pgd` = `p4d` = `pud`
+其中`pgtable_l5_enabled()`check whether 5-level page table is enabled。因此如果系統使用的是4-level，則無需存取 `p4d_t`，且直接回傳以`(p4d_t*) pgd`，  
+也就是說在4-level下 `pgd` = `p4d`  
+相同道理，3-level下 `pgd` = `p4d` = `pud`  
 
-另外，在system call code中使用`pgd = pgd_offset(current->mm, vaddr);` 時，實際上會呼叫以下這段Macro：
+另外，在system call code中使用`pgd = pgd_offset(current->mm, vaddr);` 時，實際上會呼叫以下這段Macro：  
 ```c
 #define pgd_offset(mm, address)		pgd_offset_pgd((mm)->pgd, (address))
 ```
 這個Macro展開的內容是：
-`pgd_offset(current->mm, vaddr)` 會被展開為 `pgd_offset_pgd((current->mm)->pgd, vaddr)`
-
+`pgd_offset(current->mm, vaddr)` 會被展開為 `pgd_offset_pgd((current->mm)->pgd, vaddr)`  
 
 
 根據上述對linux中page table介紹，便可以寫出page table walk 的程式碼
@@ -346,10 +344,10 @@ int main()
 }
 ```
 
-**<font size = 4>結果:</font>**
+**<font size = 4>結果:</font>**  
 ![螢幕擷取畫面 2024-10-20 164535](https://hackmd.io/_uploads/B1z_4SGgyl.png)
 
-**<font size = 4>使用dmesg來查看kernel內的訊息</font>**
+**<font size = 4>使用dmesg來查看kernel內的訊息</font>**  
 
 ![截圖 2024-10-25 下午2.22.36](https://hackmd.io/_uploads/ByQ_Kn_gye.png)
 
@@ -412,15 +410,14 @@ system call 的名字
 * `sys_my_get_physical_addresses`
 system call 對應的實作，kernel 中通常會用 sys 開頭來代表 system call 的實作
 
-`syscall_64.tbl` 這個檔案會在編譯階段被讀取後轉為 header file
-檔案位於 `arch/x86/include/generated/asm/syscalls_64.h`：
+`syscall_64.tbl` 這個檔案會在編譯階段被讀取後轉為 header file 檔案位於: `arch/x86/include/generated/asm/syscalls_64.h`：  
 ![image](https://hackmd.io/_uploads/rJE4StogJl.png)
 
 
 **<font size = 5>3. Modified `syscalls.h`</font>**
 
 將 syscall 的原型添加進檔案 (`#endif` 之前)
-路徑為: `include/linux/syscalls.h`
+路徑為: `include/linux/syscalls.h`  
 
 ![image](https://hackmd.io/_uploads/HyH4IFoeJg.png)
 
@@ -453,7 +450,7 @@ system call 對應的實作，kernel 中通常會用 sys 開頭來代表 system 
 ```c
 int a[2000000];    //uninitialized variable, store in bss segment
 ```
-**執行結果:**
+**執行結果:**  
 ![image](https://hackmd.io/_uploads/S136Q1Bekl.png)
 
 可以看到，存放在 bss segment 的 array，
@@ -465,17 +462,17 @@ Load到memory中的只有到`a[1007]`，之後就沒有load 進memory
 ```c
 int a[2000000] = {1};    // initialized variable, store in Data segment
 ```
-**執行結果:**
+**執行結果:**  
 ![image](https://hackmd.io/_uploads/SkFP8kSekx.png)
 
 可以看到，因為第一個element有被預設初始值，因此array `a`會預先載入幾個page至memory中，but only few page store in memory, 剩下尚未存取的需要透過page fault來載入至memory
 
-**<font size = 4>補充:</font>** 
+**<font size = 5>補充:</font>** 
 剛剛因為load至`a[15351]`，所以我想試看看預先存取`a[15352]` 產生page fault並將其load入physical memory，看看有甚麼結果
 ```c
 a[15352] = 1;     // occur page fault, load to phy_mem
 ```
-**執行結果:**
+**執行結果:**  
 ![image](https://hackmd.io/_uploads/rJlIAySe1l.png)
 
 可以看到 load 到`a[16375]`結束，而`a[16376]`尚未存取，
@@ -499,7 +496,7 @@ for(int i=0; i<2000000; i++)
     a[i] = 0;    //pre-accessing the array
 }
 ```
-**執行結果:**
+**執行結果:**  
 ![image](https://hackmd.io/_uploads/B1CRwyBg1g.png)
 
 可以看到即使`a`有預設初始值，但每個值都為0，因此是存放在bss segment，而透過迴圈存取每個element，會造成page fault 並強迫load into memory，因此陣列中每個element 都有分配到各自的physical address
@@ -513,8 +510,8 @@ for(int i=0; i<2000000; i++)
 ## <font color=" #008000">mm_struct</font>
 **<font color = "yellow"><font size = 4>What is `mm_struct`?</font></font>**
 
-task_struct 被稱為 process descriptor，因為其記錄了這個 process所有的context(ex: PID, scheduling info)，其中有一個被稱為 memory descriptor的結構 `mm_struct`，記錄了Linux視角下管理process address的資訊(ex: page tables)。
-![30528e172c325228bf23dec7772f0c73](https://hackmd.io/_uploads/SkgMiSY1Jg.png)
+task_struct 被稱為 process descriptor，因為其記錄了這個 process所有的context(ex: PID, scheduling info)，其中有一個被稱為 memory descriptor的結構 `mm_struct`，記錄了Linux視角下管理process address的資訊(ex: page tables)。  
+![30528e172c325228bf23dec7772f0c73](https://hackmd.io/_uploads/SkgMiSY1Jg.png)  
 圖源: [Linux源码解析-内存描述符（mm_struct）](https://blog.csdn.net/tiankong_/article/details/75676131)
 
 因此 `struct mm_struct *mm = current->mm;` 指的是存取目前process的memory management 資訊 
