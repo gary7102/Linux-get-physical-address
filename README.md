@@ -2,9 +2,9 @@
 
 **<font size = 4>2024 Fall NCU Linux OS Project 1</font>**
 * Add a system call that get physical addresses from virtual addresses
-* 介紹 `copy_from_user` 及 `copy_to_user` 使用方法
-* 使用Copy on Write 機制來驗證system call 正確呼叫
-* 介紹 Demand Paging 在 memory 中的使用時機
+* 介紹 `copy_from_user` 及 `copy_to_user` 使用方法  
+* 使用Copy on Write 機制來驗證system call 正確呼叫  
+* 介紹 Demand Paging 在 memory 中的使用時機  
 
 **<font size = 4>Environment</font>**
 ```
@@ -12,8 +12,6 @@ OS: Ubuntu 22.04
 ARCH: X86_64
 Kernel Version: 5.15.137
 ```
-# <font color="#F7A004">Build kernel</font>
-
 
 # <font color="#F7A004">copy_to_user 及 copy_from_user</font>
 
@@ -24,12 +22,11 @@ Kernel Version: 5.15.137
 unsigned long copy_from_user(void *to, const void __user *from, unsigned long n);
 ```
 
-這個函數的功能是將user space的資料複製到kernel space。其中:
-`to`: 目標地址(kernel space)
-`from`: 複製地址(user space)
-`n`: 要傳送資料的長度
-傳回值: 0 on success, or the number of bytes that could not be copied.
-
+這個函數的功能是將user space的資料複製到kernel space。其中:  
+`to`: 目標地址(kernel space)  
+`from`: 複製地址(user space)  
+`n`: 要傳送資料的長度  
+傳回值: 0 on success, or the number of bytes that could not be copied.  
 
 ## copy_to_user
 
@@ -37,11 +34,11 @@ unsigned long copy_from_user(void *to, const void __user *from, unsigned long n)
 unsigned long copy_to_user(void __user *to, const void *from, unsigned long n);
 ```
 
-這個函數的功能是將kernel space的資料複製到user space variable。其中:
-`to`: 目標地址(user space)
-`from`: 複製地址(kernel space)
-`n`: 要傳送資料的長度
-傳回值: 0 on success, or the number of bytes that could not be copied.
+這個函數的功能是將kernel space的資料複製到user space variable。其中:  
+`to`: 目標地址(user space)  
+`from`: 複製地址(kernel space)  
+`n`: 要傳送資料的長度  
+傳回值: 0 on success, or the number of bytes that could not be copied.  
 
 ## Purpose
 * Prevents crashes due to invalid memory access.
@@ -126,7 +123,7 @@ system call 正確呼叫且輸出計算結果
 
 ## Page Table in Linux
 
-Page table 一般來說可以分為兩種結構，32 bit cpu使用4-level(10-10-12)或是 64 bit cpu使用5-level(9-9-9-9-12)的架構，但也有3-level的結構，這可以透過 config 內的 `CONFIG_PGTABLE_LEVELS` 設定，基本上是基於處理器架構在設定的
+Page table 一般來說可以分為兩種結構，32 bit cpu使用4-level(10-10-12)或是 64 bit cpu使用5-level(9-9-9-9-12，加起來只有 48 因為最高的 16 位是sign extension)的架構，但也有3-level的結構，這可以透過 config 內的 `CONFIG_PGTABLE_LEVELS` 設定，基本上是基於處理器架構在設定的
 
 - **Structure of page tables**
     - PGD (Page Global Directory)
@@ -143,7 +140,7 @@ Page table 一般來說可以分為兩種結構，32 bit cpu使用4-level(10-10-
 可以看到Page table的base address 是存放在 CR3（又稱 PDBR，page directory base register）這個register，存放的是**physical address**。但我們需要的是他的virtual address，因此，使用 `task_struct->mm->pgd` 內儲存的則是 Process Global Directory(PGD) 的virtual address，
 
 **補充：**
-甚麼是`task_struct`及`mm_struct`可以參考[what is mm_struct?](#mm_struct)
+甚麼是`task_struct`及`mm_struct`可以參考下方 [what is mm_struct?](#mm_struct)
 
 每個process有各自的page table，每當context switch發生時，CR3會載入新的page table base addr.，且CR3寫入時，TLB會被自動刷新，避免用到上一個process之TLB。
 
@@ -165,9 +162,9 @@ ptd_t *pte;
 pte = pte_offset(pmd, vaddr);
 ```
 
-我們可以直接到kernel中看到這些offset function 的實作細節
+我們可以直接到 [bootlin](https://elixir.bootlin.com/linux/v5.15.137/source/include/linux/pgtable.h#L88) 中看到這些offset function 的實作細節
 
-```c=88
+```c
 // include/linux/pgtable.h line 88
 
 #ifndef pte_offset_kernel
@@ -178,11 +175,9 @@ static inline pte_t *pte_offset_kernel(pmd_t *pmd, unsigned long address)
 #define pte_offset_kernel pte_offset_kernel
 #endif
 
-
 //...
 
-
-// line 119
+// line 106
 /* Find an entry in the second-level page table.. */
 #ifndef pmd_offset
 static inline pmd_t *pmd_offset(pud_t *pud, unsigned long address)
@@ -204,10 +199,17 @@ static inline pgd_t *pgd_offset_pgd(pgd_t *pgd, unsigned long address)
 {
         return (pgd + pgd_index(address));
 };
+
+/*
+ * a shortcut to get a pgd_t in a given mm
+ */
+#ifndef pgd_offset
+#define pgd_offset(mm, address)		pgd_offset_pgd((mm)->pgd, (address))
+#endif
 ```
 對應到前一張圖，找到前一層的Directory offset再加上當前Directory的 index，一層一層去找
 
-不過在這裡發現為甚麼`p4d_offset`的實作細節沒有出現在這，但是`pud_offset`傳入的參數卻是`p4d_t *p4d`，後來在`arch/x86/include/asm/pgtable.h line 926`中找到
+不過發現`p4d_offset`的實作細節沒有出現在這，但是`pud_offset`傳入的參數卻是`p4d_t *p4d`，後來在`arch/x86/include/asm/pgtable.h line 926`中找到
 ```c=926
 // arch/x86/include/asm/pgtable.h line 926
 
@@ -222,6 +224,15 @@ static inline p4d_t *p4d_offset(pgd_t *pgd, unsigned long address)
 其中`pgtable_l5_enabled()`check whether 5-level page table is enabled。因此如果系統使用的是4-level，則無需存取 `p4d_t`，且直接回傳以`(p4d_t*) pgd`，
 也就是說在4-level下 `pgd` = `p4d`
 相同道理，3-level下 `pgd` = `p4d` = `pud`
+
+另外，在system call code中使用`pgd = pgd_offset(current->mm, vaddr);` 時，實際上會呼叫以下這段Macro：
+```c
+#define pgd_offset(mm, address)		pgd_offset_pgd((mm)->pgd, (address))
+```
+這個Macro展開的內容是：
+`pgd_offset(current->mm, vaddr)` 會被展開為 `pgd_offset_pgd((current->mm)->pgd, vaddr)`
+
+
 
 根據上述對linux中page table介紹，便可以寫出page table walk 的程式碼
 
@@ -325,11 +336,6 @@ void * my_get_physical_addresses(void *vaddr){
 
         long result = syscall(450, &vaddr, &paddr);
 
-        if (result == -1){
-            perror("syscall failed");
-            return NULL; // Handle error
-        }
-
         return (void *)paddr;
 };
 
@@ -372,9 +378,9 @@ paddr = page_addr | page_offset;
 
 # <font color="#F7A004">Add system call</font>
 
-**<font size = 4>1. Modified Makefile</font>**
+**<font size = 5>1. Modified Makefile</font>**
 
-修改`kernel/Makefile`，增加`project1.o`
+修改 `kernel/Makefile`，增加 `project1.o`
 ```
 obj-y     = fork.o exec_domain.o panic.o \
             cpu.o exit.o softirq.o resource.o \
@@ -386,7 +392,9 @@ obj-y     = fork.o exec_domain.o panic.o \
             async.o range.o smpboot.o ucount.o regset.o \
             project1.o \
 ```
-**<font size = 4>2. Modified syscall Table</font>**
+使得在編譯時也會編譯到project1
+
+**<font size = 5>2. Modified syscall Table</font>**
 
 要新增自己的 system call，打開`arch/x86/entry/syscalls/syscall_64.tbl`
 在第 374 行後面新增自己的 system call：
@@ -409,7 +417,8 @@ system call 對應的實作，kernel 中通常會用 sys 開頭來代表 system 
 ![image](https://hackmd.io/_uploads/rJE4StogJl.png)
 
 
-**<font size = 4>3. Modified `syscalls.h`</font>**
+**<font size = 5>3. Modified `syscalls.h`</font>**
+
 將 syscall 的原型添加進檔案 (`#endif` 之前)
 路徑為: `include/linux/syscalls.h`
 
@@ -419,16 +428,15 @@ system call 對應的實作，kernel 中通常會用 sys 開頭來代表 system 
 當 assembly code 呼叫 C function，並且是以 stack 方式傳參數時，在 C function 的 prototype 前面就要加上 `asmlinkage`
 
 
-# <font color="#F7A004">devmem 驗證</font>
-
 
 # <font color="#F7A004">Copy on Write</font>
 
-* __Copy on write__: allows multiple processes to share the same physical memory until one intends to modify it.
+* **<font size = 4>Copy on write:</font>** allows multiple processes to share the same physical memory until one intends to modify it.
 
 ![截圖 2024-10-25 下午3.35.54](https://hackmd.io/_uploads/SJli5p_eke.png)
 
-可以看到程式執行時，parent process，child process中`global_a`的physical memory都是共用的，直到`global_a`被改動之後，os會分配新的physical memory 給改動的process。
+可以看到程式執行時，parent process、child process中 `global_a` 的physical memory都是共用的，直到`global_a`被改動之後，os會分配新的physical memory 給改動的process，也因此驗證了system call 確實有正確呼叫
+
 
 
 # <font color="#F7A004">Loader</font>
@@ -476,7 +484,8 @@ a[15352] = 1;     // occur page fault, load to phy_mem
 16375 - 15351 = 1024    
 ```
 
-因為page size = 4KB，一個int 4 bytes，而我們使用64位元架構，因此page table entries size = 8 bytes(存兩個array element = 8 bytes)，因此：$$\dfrac{4KB}{8B} = \dfrac{2^{12}}{2^3} = 2^9 = 512$$
+因為page size = 4KB，且一個int 4 bytes，而我們使用64位元架構，
+因此page table entries size = 8 bytes(存兩個array element = 8 bytes)，因此：$$\dfrac{4KB}{8B} = \dfrac{2^{12}}{2^3} = 2^9 = 512$$
 證明也是64位元架構page table entries 為512個
 
 由此證明老師上課講解的內容
@@ -502,7 +511,7 @@ for(int i=0; i<2000000; i++)
 
 
 ## <font color=" #008000">mm_struct</font>
-**<font size = 4>What is `mm_struct`?</font>**
+**<font color = "yellow"><font size = 4>What is `mm_struct`?</font></font>**
 
 task_struct 被稱為 process descriptor，因為其記錄了這個 process所有的context(ex: PID, scheduling info)，其中有一個被稱為 memory descriptor的結構 `mm_struct`，記錄了Linux視角下管理process address的資訊(ex: page tables)。
 ![30528e172c325228bf23dec7772f0c73](https://hackmd.io/_uploads/SkgMiSY1Jg.png)
@@ -513,10 +522,62 @@ task_struct 被稱為 process descriptor，因為其記錄了這個 process所�
 By assigning `current->mm` to this pointer, now can access to the memory-related information (ex: page tables) for the process that is running the system call.
 
 
-**<font size = 4>What is `task_struct`?</font>**
+**<font color = "yellow"><font size = 4>What is `task_struct`?</font></font>**
+
+## <font color=" #008000">SYSCALL_DEFINE</font>
+
+**<font size = 4>What is `SYSCALL_DEFINE2`?</font>**
+根據 [bootlin](https://elixir.bootlin.com/linux/v5.15.137/source/include/linux/syscalls.h#L217)定義:
+
+```c=216
+#define SYSCALL_DEFINE1(name, ...) SYSCALL_DEFINEx(1, _##name, __VA_ARGS__)
+#define SYSCALL_DEFINE2(name, ...) SYSCALL_DEFINEx(2, _##name, __VA_ARGS__)
+#define SYSCALL_DEFINE3(name, ...) SYSCALL_DEFINEx(3, _##name, __VA_ARGS__)
+#define SYSCALL_DEFINE4(name, ...) SYSCALL_DEFINEx(4, _##name, __VA_ARGS__)
+#define SYSCALL_DEFINE5(name, ...) SYSCALL_DEFINEx(5, _##name, __VA_ARGS__)
+#define SYSCALL_DEFINE6(name, ...) SYSCALL_DEFINEx(6, _##name, __VA_ARGS__)
+
+#define SYSCALL_DEFINE_MAXARGS	6
+```
+
+其中`SYSCALL_DEFINE1(name, ...)` 中的
+* `1`表示system call 參數的個數，依此類推2、3、4、5、6 表示參數個數
+* `name` 表示系統呼叫system call的名字
+
+而後面的 `SYSCALL_DEFINEx(1, _##name, __VA_ARGS__)` 中的
+* `_##name` 是一個預處理器拼接操作，會將 `_` 和 `name` 組合成一個標識符，
+例如，如果kernel中使用了 
+```
+SYSCALL_DEFINE1(my_get_physical_addresses, void *ptr)
+```
+則這個 Macro 會展開為：
+```
+asmlinkage long sys_my_get_physical_addresses(void *ptr);
+```
+* `__VA_ARGS__` 代表傳入的參數
 
 
----
+## <font color=" #008000">How to get `pgd_index`?</font>
+根據 [bootlin](https://elixir.bootlin.com/linux/v5.15.137/source/include/linux/pgtable.h#L85) 
+```c
+#ifndef pgd_index
+/* Must be a compile-time constant, so implement it as a macro */
+#define pgd_index(a)        (((a) >> PGDIR_SHIFT) & (PTRS_PER_PGD - 1))
+#endif
+```
+其中
+* `#define pgd_index(a)`：定義 `pgd_index` Macro，接受一個參數 `a`，代表一個virtual address
+* `(((a) >> PGDIR_SHIFT) & (PTRS_PER_PGD - 1))`：這是用來計算 `a` 在 PGD 中的index的表達式。
+
+**<font size = 4>例子：</font>**
+在x86_64架構的 `PGDIR_SHIFT` 為 39 (48 - 9)，
+且`PTRS_PER_PGD` 為 512，那麼 `pgd_index(a)` 的操作流程如下：
+
+* 將虛擬地址 `a` 右移 39 位，提取出對應 PGD 的高位部分
+* 將結果與 `511`（`PTRS_PER_PGD - 1`）做 bitwise `&`，確保index在有效範圍內
+
+得到的結果即為 virtual address `a` 的 `pgd_index`，
+並且可以依此類推到 `p4d_offset`、`pud_offset`、`pmd_offset`的計算方法
 
 # <font color="#F7A004">Problems</font>
 Project 中遇到的問題與解決方法
@@ -525,8 +586,7 @@ Project 中遇到的問題與解決方法
 
 ![image](https://hackmd.io/_uploads/BJwlBdkgyg.png)
 
-可以看到error message: `syscall failed: Function not implemented`
-是因為我犯了個錯誤:
+可以看到error message: `syscall failed: Function not implemented` 
 
 :::info
 1. system call function code:
@@ -544,7 +604,7 @@ Project 中遇到的問題與解決方法
 照理來說，若是兩者沒有match會使得make 失敗，也是我後來發現問題的原因。
 
 **<font size=5>Solution:</font>**
-將兩者改至相同互相match情況下重新make ，重新編譯kernel，就可以正常呼叫了
+將兩者名稱改至相同，互相match情況下先`make mrproper`再`make`，重新編譯kernel，就可以正常呼叫了
 
 # <font color="#F7A004">Referenced</font>
 
@@ -555,3 +615,4 @@ Project 中遇到的問題與解決方法
 * [add a system call to kernel (v5.15.137)](https://hackmd.io/aist49C9R46-vaBIlP3LDA?view#add-a-system-call-to-kernel-v515137)
 * [Kernel 的替換 & syscall 的添加](https://satin-eyebrow-f76.notion.site/Kernel-syscall-3ec38210bb1f4d289850c549def29f9f)
 * [關於Linux尋址及page table的一些細節](https://www.cnblogs.com/QiQi-Robotics/p/15630380.html)
+* [SYSCALL_DEFINEx宏源码解析](https://blog.csdn.net/qq_41345173/article/details/104071618)
