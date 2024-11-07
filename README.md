@@ -1,4 +1,4 @@
-# <font color="#F7A004">Introduction</font>
+# <font color="#F7A004">Intro</font>
 
 **<font size = 4>2024 Fall NCU Linux OS Project 1</font>**
 * Add a system call that get physical addresses from virtual addresses
@@ -13,7 +13,12 @@ ARCH: X86_64
 Kernel Version: 5.15.137
 ```
 
-# <font color="#F7A004">copy_to_user 及 copy_from_user</font>
+# <font color="#F7A004">Build Kernel</font>  
+
+
+
+
+# <font color="#F7A004">`copy_from_user` 及 `copy_to_user`</font>
 
 ## copy_from_user
 根據[bootlin](https://elixir.free-electrons.com/linux/v5.15.137/source/include/linux/uaccess.h#L189)
@@ -23,8 +28,8 @@ unsigned long copy_from_user(void *to, const void __user *from, unsigned long n)
 ```
 
 這個函數的功能是將user space的資料複製到kernel space。其中:  
-`to`: 目標地址(kernel space)  
-`from`: 複製地址(user space)  
+`to`: 目標位址，是kernel space中的一個指標，用來存放從user space 複製過來的資料。  
+`from`:來源位址，是user space中的一個指標，指向需要被複製的資料(ex: point to virtual address)。  
 `n`: 要傳送資料的長度  
 傳回值: 0 on success, or the number of bytes that could not be copied.  
 
@@ -107,8 +112,10 @@ int main() {
     return 0;
 }
 ```
-line 17傳入`&input`及`&output`，分別對應system call 的`int __user *, input`及`int __user *, output`，若正確複製則回傳值為0  
+line 17傳入`&input`及`&output`，  
+分別對應system call 的`int __user *, input`及`int __user *, output`，若正確複製則回傳值為0  
 而user space的`output`已經在`copy_to_user()`時寫入新資料。  
+
 
 
 **<font size = 4>執行結果 :</font>**  
@@ -226,10 +233,11 @@ static inline p4d_t *p4d_offset(pgd_t *pgd, unsigned long address)
 
 另外，在system call code中使用`pgd = pgd_offset(current->mm, vaddr);` 時，實際上會呼叫以下這段Macro：  
 ```c
-#define pgd_offset(mm, address)		pgd_offset_pgd((mm)->pgd, (address))
+#define pgd_offset(mm, address)	pgd_offset_pgd((mm)->pgd, (address))
 ```
-這個Macro展開的內容是：
-`pgd_offset(current->mm, vaddr)` 會被展開為 `pgd_offset_pgd((current->mm)->pgd, vaddr)`  
+這個Macro的內容是：
+`pgd_offset(current->mm, vaddr)`   
+會被展開為 `pgd_offset_pgd((current->mm)->pgd, vaddr)`  
 
 
 根據上述對linux中page table介紹，便可以寫出page table walk 的程式碼
@@ -248,8 +256,10 @@ static inline p4d_t *p4d_offset(pgd_t *pgd, unsigned long address)
 #include <linux/mm_types.h>
 #include <asm/pgtable.h>
 
-SYSCALL_DEFINE2(my_get_physical_addresses, void *, user_vaddr, 
+SYSCALL_DEFINE2(my_get_physical_addresses,
+                void *, user_vaddr, 
                 unsigned long *, user_paddr) {
+    
     unsigned long vaddr;
     unsigned long paddr = 0;
     pgd_t *pgd;
@@ -270,7 +280,7 @@ SYSCALL_DEFINE2(my_get_physical_addresses, void *, user_vaddr,
     pgd = pgd_offset(current->mm, vaddr);
     if (pgd_none(*pgd) || pgd_bad(*pgd)) {
         printk("PGD entry not valid or not present\n");
-        return -EFAULT;
+        return -EFAULT;    // #define	EFAULT		14	 /*Bad address*/
     }
 
     // Get the P4D (Page 4 Directory)
@@ -316,11 +326,10 @@ SYSCALL_DEFINE2(my_get_physical_addresses, void *, user_vaddr,
 ```
 :::
 
-**<font size = 4>在程式碼中，line 61至63主要是用來計算physical address</font>**
-
+**<font size = 4>在程式碼中，line 64至66主要是用來計算physical address</font>**
 
 :::success
-**<font color = "yellow">以實際例子介紹line 61~63</font>**
+**<font color = "yellow">以實際例子介紹line 64~66</font>**
 
 **<font size = 4>新增test.c</font>**
 
@@ -339,42 +348,54 @@ void * my_get_physical_addresses(void *vaddr){
 
 int main()
 {
-    printf("the virtual address of function main is %p\n", &main);
-    printf("the physical address of function main is %p\n", my_get_physical_addresses(main));
+    int a = 10;
+    printf("Virtual addr. of arg a = %p\n", &a);
+    printf("Physical addr. of arg a = %p\n", my_get_physical_addresses(&a));
 }
 ```
 
 **<font size = 4>結果:</font>**  
-![螢幕擷取畫面 2024-10-20 164535](https://hackmd.io/_uploads/B1z_4SGgyl.png)
+![截圖 2024-11-04 下午4.15.30](https://hackmd.io/_uploads/rkb3G-U-ke.png)
 
 **<font size = 4>使用dmesg來查看kernel內的訊息</font>**  
 
-![截圖 2024-10-25 下午2.22.36](https://hackmd.io/_uploads/ByQ_Kn_gye.png)
+![截圖 2024-11-04 下午4.16.24](https://hackmd.io/_uploads/rk4J7Z8ZJx.png)
+![image](https://hackmd.io/_uploads/r1iZv-IWJe.png)
 
-可以看到virtual address = `0x60f2624e2191`
-`pte_val(*pte)` = PTE base address = `0x19567e025`
+
+可以看到virtual address = `0x7ffe22a14794`
+`pte_val(*pte)` = PTE base address = `0x8000000199b8f867`
 另外，`PAGE_MASK` = `0xFFFFFFFFFFFFF000`因為page size 為 4KB
-```c=61
+```c=64
 page_addr = pte_val(*pte) & PAGE_MASK;
 ```
-得`page_addr` = `0x19567e025` & `0xFFFFFFFFFFFFF000` = `0x19567e000`
+得`page_addr` = `0x8000000199b8f867` & `0xFFFFFFFFFFFFF000` = `0x8000000199b8f000`  
 `page_addr` 為 **base address of the physical page frame**
 
-```c=62
+```c=65
 page_offset = vaddr & ~PAGE_MASK;
 ```
-`page_offset` = `0x60f2624e2191` & `0x0000000000000FFF` = `0x191`得到physical page frame的offset
+`page_offset` = `0x7ffe22a14794` & `0x0000000000000FFF` = `0x794`  
+得到 **physical page frame的offset**
 
-```c=63
+```c=66
 paddr = page_addr | page_offset;
 ```
-最後physical address = `0x19567e000` | `0x191` = `0x19567e191`
+最後physical address = `0x8000000199b8f000` | `0x794` = `0x8000000199b8f794`
     
-**<font size = 4>簡單來說，其實就只是需要先算出page frame address再和offset 相加而已，只不過是使用 bitwise`&` 及 `|` 來計算出結果的</font>**
+**<font size = 4>簡單來說，其實就只是需要先算出page frame address再和offset 相加而已，只不過是使用 bitwise`&` 及 `|` 來計算出結果</font>**
 :::
 
 
-# <font color="#F7A004">Add system call</font>
+:::warning
+因為使用 `copy_from_user()`因此必須傳入pointer of pointer of `vaddr` ，  
+所以即使 `my_get_physical_addresses(void *vaddr)`中的`void *vaddr`已經是pointer，  
+但是在呼叫system calls時，`long result = syscall(450, &vaddr, &paddr);`  
+需要傳送的參數是`&vaddr`(i.e. pointer of pointer of `vaddr`)
+:::
+
+
+## Add system call
 
 **<font size = 5>1. Modified Makefile</font>**
 
@@ -390,7 +411,7 @@ obj-y     = fork.o exec_domain.o panic.o \
             async.o range.o smpboot.o ucount.o regset.o \
             project1.o \
 ```
-使得在編譯時也會編譯到project1
+使得在編譯時也會編譯到`project1`這個檔案
 
 **<font size = 5>2. Modified syscall Table</font>**
 
@@ -448,6 +469,7 @@ system call 對應的實作，kernel 中通常會用 sys 開頭來代表 system 
 
 ## <font color = "green">case 1:</font> Array store in bss segment 
 ```c
+// global variable
 int a[2000000];    //uninitialized variable, store in bss segment
 ```
 **執行結果:**  
@@ -460,6 +482,7 @@ Load到memory中的只有到`a[1007]`，之後就沒有load 進memory
 
 ## <font color = "green">case 2:</font> array store in data segment
 ```c
+// global variable
 int a[2000000] = {1};    // initialized variable, store in Data segment
 ```
 **執行結果:**  
@@ -491,6 +514,7 @@ a[15352] = 1;     // occur page fault, load to phy_mem
 ## <font color = "green">case 3:</font> loop through array
 
 ```c
+// in local 
 for(int i=0; i<2000000; i++)
 {
     a[i] = 0;    //pre-accessing the array
@@ -499,16 +523,17 @@ for(int i=0; i<2000000; i++)
 **執行結果:**  
 ![image](https://hackmd.io/_uploads/B1CRwyBg1g.png)
 
-可以看到即使`a`有預設初始值，但每個值都為0，因此是存放在bss segment，而透過迴圈存取每個element，會造成page fault 並強迫load into memory，因此陣列中每個element 都有分配到各自的physical address
-
-
+In this particular case，不管是定義在Data segment or BSS segment，透過迴圈存取每個element，會造成page fault 並強迫load into memory，因此陣列中每個element 都有分配到各自的physical address
 
 
 # <font color="#F7A004">Note</font>
 
+## <font color = "#008000">BSS segment vs Data segment</font>
+BSS segment 存放的資料為 **uninitialized global variable (initialized with 0)** 或是 **uninitialized static variable**，而存放在bss segment和data segment的差別可以從[case 1](##case1)及[case 2](##case2)看到，data segement中的資料會在程式載入時通常會**立即分配頁面**，因此分配到的記憶體更多
+
 
 ## <font color=" #008000">mm_struct</font>
-**<font color = "yellow"><font size = 4>What is `mm_struct`?</font></font>**
+**<font color = "#0000ff"><font size = 4>What is `mm_struct`?</font></font>**
 
 task_struct 被稱為 process descriptor，因為其記錄了這個 process所有的context(ex: PID, scheduling info)，其中有一個被稱為 memory descriptor的結構 `mm_struct`，記錄了Linux視角下管理process address的資訊(ex: page tables)。  
 ![30528e172c325228bf23dec7772f0c73](https://hackmd.io/_uploads/SkgMiSY1Jg.png)  
@@ -519,14 +544,28 @@ task_struct 被稱為 process descriptor，因為其記錄了這個 process所�
 By assigning `current->mm` to this pointer, now can access to the memory-related information (ex: page tables) for the process that is running the system call.
 
 
-**<font color = "yellow"><font size = 4>What is `task_struct`?</font></font>**
+**<font color = "#0000ff"><font size = 4>What is `task_struct`?</font></font>**  
+
+根據 [bootlin](https://elixir.bootlin.com/linux/v5.15.137/source/include/linux/sched.h#L721) `task_struct` is a key data structure in the Linux kernel that represents a process or thread. It holds all the information related to a process.   
+
+其中比較重要的有:  
+
+`pid_t pid`: The process ID.  
+`pid_t tgid`: The thread group ID, which is the same as pid for the main thread of a process.  
+`struct mm_struct *mm`: Pointer to the memory descriptor, which contains information about the process's memory mappings.  
+`struct task_struct *parent`: Pointer to the parent process.  
+`struct list_head children`: List head for tracking child processes.  
+`struct list_head sibling`: List head for linking to sibling processes.  
+`struct files_struct *files`: Pointer to the file descriptor table.  
+`unsigned int flags`: Flags that represent various attributes and settings of the process.  
+
 
 ## <font color=" #008000">SYSCALL_DEFINE</font>
 
 **<font size = 4>What is `SYSCALL_DEFINE2`?</font>**
 根據 [bootlin](https://elixir.bootlin.com/linux/v5.15.137/source/include/linux/syscalls.h#L217)定義:
 
-```c=216
+```c
 #define SYSCALL_DEFINE1(name, ...) SYSCALL_DEFINEx(1, _##name, __VA_ARGS__)
 #define SYSCALL_DEFINE2(name, ...) SYSCALL_DEFINEx(2, _##name, __VA_ARGS__)
 #define SYSCALL_DEFINE3(name, ...) SYSCALL_DEFINEx(3, _##name, __VA_ARGS__)
@@ -542,7 +581,7 @@ By assigning `current->mm` to this pointer, now can access to the memory-related
 * `name` 表示系統呼叫system call的名字
 
 而後面的 `SYSCALL_DEFINEx(1, _##name, __VA_ARGS__)` 中的
-* `_##name` 是一個預處理器拼接操作，會將 `_` 和 `name` 組合成一個標識符，
+* `_##name` 是一個預處理器拼接操作，會將 `_` 和 `name` 組合成一個標識符，  
 例如，如果kernel中使用了 
 ```
 SYSCALL_DEFINE1(my_get_physical_addresses, void *ptr)
@@ -554,7 +593,30 @@ asmlinkage long sys_my_get_physical_addresses(void *ptr);
 * `__VA_ARGS__` 代表傳入的參數
 
 
-## <font color=" #008000">How to get `pgd_index`?</font>
+## <font color = "#008000">What is `pud_pgtable(*pud)`?</font>
+
+根據 [bootlin](https://elixir.bootlin.com/linux/v5.15.137/source/arch/arc/include/asm/pgtable-levels.h#L136)
+```c
+#define pud_pgtable(pud)	((pmd_t *)(pud_val(pud) & PAGE_MASK))
+```
+這個Macro的作用是回傳一個 `pmd_t *`的structure pointer，  
+指向`pmd`（下一層）的page table base address。  
+
+其中：
+
+* `pud_val()`： 根據 [bootlin](https://elixir.bootlin.com/linux/v5.15.137/source/arch/arc/include/asm/page.h#L50) 
+```c
+#define pud_val(x)      	((x).pud)
+```
+`pud_t` 是一個 `struct`，`.pud` 是其內部的成員，用來存取這個page的實際值
+* `PAGE_MASK` 一樣是`0xFFFFFFFFFFFFF000`因為page size 為 4KB
+
+因此`pud_val(pud)`去`pud` page table中存值並且和`PAGE_MASK`做`&` 取得`pmd` page table base address ，並且回傳以`pmd_t *`的struct  
+
+以此類推到`p4d_pgtable()`, `pmd_page_vaddr()`
+
+
+## <font color= "#008000">How to get `pgd_index`?</font>
 根據 [bootlin](https://elixir.bootlin.com/linux/v5.15.137/source/include/linux/pgtable.h#L85) 
 ```c
 #ifndef pgd_index
@@ -566,7 +628,7 @@ asmlinkage long sys_my_get_physical_addresses(void *ptr);
 * `#define pgd_index(a)`：定義 `pgd_index` Macro，接受一個參數 `a`，代表一個virtual address
 * `(((a) >> PGDIR_SHIFT) & (PTRS_PER_PGD - 1))`：這是用來計算 `a` 在 PGD 中的index的表達式。
 
-**<font size = 4>例子：</font>**
+**<font size = 4>舉例：</font>**  
 在x86_64架構的 `PGDIR_SHIFT` 為 39 (48 - 9)，
 且`PTRS_PER_PGD` 為 512，那麼 `pgd_index(a)` 的操作流程如下：
 
@@ -574,10 +636,15 @@ asmlinkage long sys_my_get_physical_addresses(void *ptr);
 * 將結果與 `511`（`PTRS_PER_PGD - 1`）做 bitwise `&`，確保index在有效範圍內
 
 得到的結果即為 virtual address `a` 的 `pgd_index`，
-並且可以依此類推到 `p4d_offset`、`pud_offset`、`pmd_offset`的計算方法
+並且可以依此類推到 `p4d_offset`、`pud_index`、`pmd_index`的計算方法
 
 # <font color="#F7A004">Problems</font>
 Project 中遇到的問題與解決方法
+
+## <font color="#008000">`copy_from_user` pointer 問題</font>
+
+在copy_from_user()中
+
 
 ## <font color="#008000">system call 未成功呼叫</font>
 
