@@ -311,7 +311,7 @@ SYSCALL_DEFINE2(my_get_physical_addresses,
     }
 
     // Compute physical address from PTE
-    page_addr = pte_val(*pte) & PAGE_MASK;
+    page_addr = pte_val(*pte) & PTE_PFN_MASK;
     page_offset = vaddr & ~PAGE_MASK;
     paddr = page_addr | page_offset;
 
@@ -338,10 +338,10 @@ SYSCALL_DEFINE2(my_get_physical_addresses,
 #include <sys/syscall.h>      /* Definition of SYS_* constants */
 #include <unistd.h>
 
-void * my_get_physical_addresses(void *vaddr){
+void * my_get_physical_addresses(void *vaddr_of_a){
         unsigned long paddr;
 
-        long result = syscall(450, &vaddr, &paddr);
+        long result = syscall(450, &vaddr_of_a, &paddr);
 
         return (void *)paddr;
 };
@@ -355,43 +355,45 @@ int main()
 ```
 
 **<font size = 4>結果:</font>**  
-![截圖 2024-11-04 下午4.15.30](https://hackmd.io/_uploads/rkb3G-U-ke.png)
+![image](https://hackmd.io/_uploads/HyFZkBsZkx.png)
+
 
 **<font size = 4>使用dmesg來查看kernel內的訊息</font>**  
 
-![截圖 2024-11-04 下午4.16.24](https://hackmd.io/_uploads/rk4J7Z8ZJx.png)
+![image](https://hackmd.io/_uploads/ryaNJriWkl.png)
+
 ![image](https://hackmd.io/_uploads/r1iZv-IWJe.png)
 
 
-可以看到virtual address = `0x7ffe22a14794`
-`pte_val(*pte)` = PTE base address = `0x8000000199b8f867`
-另外，`PAGE_MASK` = `0xFFFFFFFFFFFFF000`因為page size 為 4KB
+可以看到virtual address = `0x7fffd5bd1544`，  
+`pte_val(*pte)` = PTE base address = `0x8000000093567867`  
+另外，`PTE_PFN_MASK` = `0x0000FFFFFFFFF000`因為page size 為 4KB，且**保留了bit 12 到 51 的部分（總共 40 bit），可參考上圖**，或是最下方[physical memory範圍](##physical_memory範圍)
 ```c=64
-page_addr = pte_val(*pte) & PAGE_MASK;
+page_addr = pte_val(*pte) & PTE_PFN_MASK;
 ```
-得`page_addr` = `0x8000000199b8f867` & `0xFFFFFFFFFFFFF000` = `0x8000000199b8f000`  
+得`page_addr` = `0x8000000093567867 ` & `0x0000FFFFFFFFF000` = `0x93567000`  
 `page_addr` 為 **base address of the physical page frame**
 
 ```c=65
 page_offset = vaddr & ~PAGE_MASK;
 ```
-`page_offset` = `0x7ffe22a14794` & `0x0000000000000FFF` = `0x794`  
+`page_offset` = `0x7fffd5bd1544` & `0x0000000000000FFF` = `0x544`  
 得到 **physical page frame的offset**
 
 ```c=66
 paddr = page_addr | page_offset;
 ```
-最後physical address = `0x8000000199b8f000` | `0x794` = `0x8000000199b8f794`
+最後 physical address = `0x93567000` | `0x544` = `0x93567544`
     
 **<font size = 4>簡單來說，其實就只是需要先算出page frame address再和offset 相加而已，只不過是使用 bitwise`&` 及 `|` 來計算出結果</font>**
 :::
 
 
 :::warning
-因為使用 `copy_from_user()`因此必須傳入pointer of pointer of `vaddr` ，  
-所以即使 `my_get_physical_addresses(void *vaddr)`中的`void *vaddr`已經是pointer，  
-但是在呼叫system calls時，`long result = syscall(450, &vaddr, &paddr);`  
-需要傳送的參數是`&vaddr`(i.e. pointer of pointer of `vaddr`)
+因為使用 `copy_from_user()`因此必須傳入pointer of of virtual address of `a`，  
+所以即使 `my_get_physical_addresses(void *vaddr_of_a)`中的`*vaddr_of_a`已經是pointer，  
+但是在呼叫system calls時，`long result = syscall(450, &vaddr_of_a, &paddr);`  
+需要傳送的參數是`&vaddr_of_a`(i.e. pointer of of virtual address of `a`)
 :::
 
 
@@ -451,7 +453,8 @@ system call 對應的實作，kernel 中通常會用 sys 開頭來代表 system 
 
 * **<font size = 4>Copy on write:</font>** allows multiple processes to share the same physical memory until one intends to modify it.
 
-![截圖 2024-10-25 下午3.35.54](https://hackmd.io/_uploads/SJli5p_eke.png)
+![螢幕擷取畫面 2024-11-08 154515](https://hackmd.io/_uploads/Hy8Qzrsb1l.png)
+
 
 可以看到程式執行時，parent process、child process中 `global_a` 的physical memory都是共用的，直到`global_a`被改動之後，os會分配新的physical memory 給改動的process，也因此驗證了system call 確實有正確呼叫
 
@@ -470,33 +473,34 @@ system call 對應的實作，kernel 中通常會用 sys 開頭來代表 system 
 ## <font color = "green">case 1:</font> Array store in bss segment 
 ```c
 // global variable
-int a[2000000];    //uninitialized variable, store in bss segment
+int a[2000000];   //store in bss segment same as  int a[2000000] = {0}; 
 ```
 **執行結果:**  
-![image](https://hackmd.io/_uploads/S136Q1Bekl.png)
+![image](https://hackmd.io/_uploads/Hy2hMHjZJg.png)
 
 可以看到，存放在 bss segment 的 array，
-Load到memory中的只有到`a[1007]`，之後就沒有load 進memory
+Load到memory中的只有到 `a[1007]`，之後就沒有load 進memory，因此沒有分配physical memory
 
 
 
-## <font color = "green">case 2:</font> array store in data segment
+## <font color = "green">case 2:</font> Array store in data segment
 ```c
 // global variable
-int a[2000000] = {1};    // initialized variable, store in Data segment
+int a[2000000] = {1};  // initialized variable, store in Data segment
 ```
 **執行結果:**  
-![image](https://hackmd.io/_uploads/SkFP8kSekx.png)
+![image](https://hackmd.io/_uploads/H1g4XBsWJe.png)
 
-可以看到，因為第一個element有被預設初始值，因此array `a`會預先載入幾個page至memory中，but only few page store in memory, 剩下尚未存取的需要透過page fault來載入至memory
 
-**<font size = 5>補充:</font>** 
-剛剛因為load至`a[15351]`，所以我想試看看預先存取`a[15352]` 產生page fault並將其load入physical memory，看看有甚麼結果
+可以看到，因為第一個element有被預設初始值，因此array `a`會預先載入幾個page至memory中，but only few page store in memory, 剩下尚未存取的需要透過page fault來載入至memory，因此印至 `a[15351]`便停止
+
+**<font size = 5>補充:</font>**   
+因為load至`a[15351]`，所以我想試看看預先存取`a[15352]` 產生page fault並將其load入physical memory，看看有甚麼結果
 ```c
 a[15352] = 1;     // occur page fault, load to phy_mem
 ```
 **執行結果:**  
-![image](https://hackmd.io/_uploads/rJlIAySe1l.png)
+![image](https://hackmd.io/_uploads/SJhooBsWJl.png)
 
 可以看到 load 到`a[16375]`結束，而`a[16376]`尚未存取，
 因此可得：
@@ -529,7 +533,14 @@ In this particular case，不管是定義在Data segment or BSS segment，透過
 # <font color="#F7A004">Note</font>
 
 ## <font color = "#008000">BSS segment vs Data segment</font>
-BSS segment 存放的資料為 **uninitialized global variable (initialized with 0)** 或是 **uninitialized static variable**，而存放在bss segment和data segment的差別可以從[case 1](##case1)及[case 2](##case2)看到，data segement中的資料會在程式載入時通常會**立即分配頁面**，因此分配到的記憶體更多
+BSS segment 存放的資料為 **uninitialized global variable (initialized with 0)** 或是 **uninitialized static variable**，而存放在bss segment和data segment的差別可以從[case 1](##case1)及[case 2](##case2)看到，data segement中的資料會在程式載入時會**立即分配頁面**，因此分配到的記憶體更多
+```
+// global variables
+
+int a[100];        // bss segment
+int a[100] = {0};  // bss segment
+int a[100] = {1};  // Data segment
+```
 
 
 ## <font color=" #008000">mm_struct</font>
@@ -639,36 +650,16 @@ asmlinkage long sys_my_get_physical_addresses(void *ptr);
 並且可以依此類推到 `p4d_offset`、`pud_index`、`pmd_index`的計算方法
 
 # <font color="#F7A004">Problems</font>
-Project 中遇到的問題與解決方法
 
-## <font color="#008000">`copy_from_user` pointer 問題</font>
+## <font color="#008000">physical_memory範圍</font>
+假設我們給予8GB 記憶體空間，那麼8GB = 8,589,934,592 Bytes = 0x2 0000 0000   
+因此最高能分配到的記憶體位置為 0x1 FFFF FFFF  
+![image](https://hackmd.io/_uploads/rJlIAySe1l.png)
 
-在copy_from_user()中
+以上圖為例，physical address 明顯超出記憶體範圍，原因如下圖所述，並不是所有的bit都為實體記憶體位址，前面0x8000...都是NX bit或是其他功能，所以必須在計算physical address時使用`PTE_PFN_MASK`過濾掉第52 bits以上及後面12 bits，得到的才是實際physical frame number，加上offset 才會是physical address  
 
+![image](https://hackmd.io/_uploads/r1iZv-IWJe.png)
 
-## <font color="#008000">system call 未成功呼叫</font>
-
-![image](https://hackmd.io/_uploads/BJwlBdkgyg.png)
-
-可以看到error message: `syscall failed: Function not implemented` 
-
-:::info
-1. system call function code:
-`SYSCALL_DEFINE1(my_get_physical_addresses, void *)`
-![image](https://hackmd.io/_uploads/ByJPHKJgyx.png)
-
-2. system call table
-`linux-5.15.137/arch/x86/entry/syscalls/syscall_64.tbl` 中 
-![image](https://hackmd.io/_uploads/HkACLKkxkg.png)
-
-
-<font size = 4>竟然是my_get_physical_addresseses 和my_get_physical_addresses 少加了es</font>
-:::
-
-照理來說，若是兩者沒有match會使得make 失敗，也是我後來發現問題的原因。
-
-**<font size=5>Solution:</font>**
-將兩者名稱改至相同，互相match情況下先`make mrproper`再`make`，重新編譯kernel，就可以正常呼叫了
 
 # <font color="#F7A004">Referenced</font>
 
@@ -680,3 +671,4 @@ Project 中遇到的問題與解決方法
 * [Kernel 的替換 & syscall 的添加](https://satin-eyebrow-f76.notion.site/Kernel-syscall-3ec38210bb1f4d289850c549def29f9f)
 * [關於Linux尋址及page table的一些細節](https://www.cnblogs.com/QiQi-Robotics/p/15630380.html)
 * [SYSCALL_DEFINEx宏源码解析](https://blog.csdn.net/qq_41345173/article/details/104071618)
+* [Linux Kernel](https://hackmd.io/@eugenechou/H1LGA9AiB#Project-1)
