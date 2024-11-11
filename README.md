@@ -1,6 +1,8 @@
 # <font color="#F7A004">Intro</font>
 
 **<font size = 4>2024 Fall NCU Linux OS Project 1</font>**
+
+
 * Add a system call that get physical addresses from virtual addresses
 * 介紹 `copy_from_user` 及 `copy_to_user` 使用方法  
 * 使用Copy on Write 機制來驗證system call 正確呼叫  
@@ -12,9 +14,6 @@ OS: Ubuntu 22.04
 ARCH: X86_64
 Kernel Version: 5.15.137
 ```
-
-# <font color="#F7A004">Build Kernel</font>  
-
 
 
 
@@ -227,25 +226,15 @@ static inline p4d_t *p4d_offset(pgd_t *pgd, unsigned long address)
         return (p4d_t *)pgd_page_vaddr(*pgd) + p4d_index(address);
 }
 ```
-其中`pgtable_l5_enabled()`check whether 5-level page table is enabled。因此如果系統使用的是4-level，則無需存取 `p4d_t`，且直接回傳以`(p4d_t*) pgd`，  
-也就是說在4-level下 `pgd` = `p4d`  
-相同道理，3-level下 `pgd` = `p4d` = `pud`  
 
-另外，在system call code中使用`pgd = pgd_offset(current->mm, vaddr);` 時，實際上會呼叫以下這段Macro：  
-```c
-#define pgd_offset(mm, address)	pgd_offset_pgd((mm)->pgd, (address))
-```
-這個Macro的內容是：
-`pgd_offset(current->mm, vaddr)`   
-會被展開為 `pgd_offset_pgd((current->mm)->pgd, vaddr)`  
 
 
 根據上述對linux中page table介紹，便可以寫出page table walk 的程式碼
 
-## Page Table walk
+## Page Table walk 實作
 
 新增一個檔案叫 `project1.c`，路徑為 `kernel/project1.c`
-:::spoiler <font color = "yellow">範例</font>
+:::spoiler <font color = green>範例</font>
 
 ```c=1
 #include <linux/syscalls.h>
@@ -326,10 +315,216 @@ SYSCALL_DEFINE2(my_get_physical_addresses,
 ```
 :::
 
-**<font size = 4>在程式碼中，line 64至66主要是用來計算physical address</font>**
+
+
+## 地址轉換trace code:
+
+### 第一層轉換PGD:
+>目標 : 回傳PGD entry的virtual address
+
+**<font size = 4>程式碼:</font>**
+```c
+pgd = pgd_offset(current->mm, vaddr);
+```
+
+**<font size = 4>trace code:</font>**
+
+![image](https://hackmd.io/_uploads/Bku2LGAb1e.png)
+
+![image](https://hackmd.io/_uploads/S11p8fAWJg.png)
+
+
+由`current->mm->pgd`找出PGD的base address再加上`pgd_index` 計算出pgd entry的虛擬位置，回傳指標。
+
 
 :::success
-**<font color = "yellow">以實際例子介紹line 64~66</font>**
+### <font color= "#008000">How to get `pgd_index`?</font>
+根據 [bootlin](https://elixir.bootlin.com/linux/v5.15.137/source/include/linux/pgtable.h#L85) 
+```c
+#ifndef pgd_index
+/* Must be a compile-time constant, so implement it as a macro */
+#define pgd_index(a)        (((a) >> PGDIR_SHIFT) & (PTRS_PER_PGD - 1))
+#endif
+```
+其中
+* `#define pgd_index(a)`：定義 `pgd_index` Macro，接受一個參數 `a`，代表一個virtual address
+* `(((a) >> PGDIR_SHIFT) & (PTRS_PER_PGD - 1))`：這是用來計算 `a` 在 PGD 中的index的表達式。
+
+**<font size = 4>舉例：</font>**  
+在x86_64架構的 `PGDIR_SHIFT` 為 39 (48 - 9)，
+且`PTRS_PER_PGD` 為 512，那麼 `pgd_index(a)` 的操作流程如下：
+
+* 將虛擬地址 `a` 右移 39 位，提取出對應 PGD 的高位部分
+* 將結果與 `511`（`PTRS_PER_PGD - 1`）做 bitwise `&`，確保index在有效範圍內
+
+得到的結果即為 virtual address `a` 的 `pgd_index`，
+並且可以依此類推到 `p4d_index`、`pud_index`、`pmd_index`及`pte_index`的計算方法
+:::
+
+### 第二層轉換P4D(p4d僅5 level轉換時啟用，此處會值接回傳傳入的pgd *)
+**<font size = 4>程式碼:</font>**
+```c
+p4d = p4d_offset(pgd, vaddr);
+```
+
+
+**<font size = 4>trace code:</font>**
+`//arch/x86/include/asm/pgtable.h line 926)`
+
+
+![image](https://hackmd.io/_uploads/HyqCLfAWke.png)
+
+
+其中`pgtable_l5_enabled()` check whether 5-level page table is enabled。因此如果系統使用的是4-level，則無需存取 `p4d_t`，且直接回傳以`(p4d_t*) pgd`，  
+也就是說在4-level下 `pgd = p4d`  
+相同道理，3-level下 `pgd = p4d = pud`
+
+
+###  第三層轉換PUD 
+>目標 : 使用*pgd與pud index找到之PUD entry的virtual address
+
+**<font size = 4>程式碼:</font>**
+```c
+pud = pud_offset(p4d, vaddr);
+```
+
+**<font size = 4>trace code:</font>**
+```c
+//arch/x86//include/linux/pgtable.h Line:115
+#ifndef pud_offset
+static inline pud_t *pud_offset(p4d_t *p4d, unsigned long address)
+{
+        return p4d_pgtable(*p4d) + pud_index(address);
+}
+```
+
+![image](https://hackmd.io/_uploads/SJlWDG0bkx.png)
+
+
+![image](https://hackmd.io/_uploads/BynZPfR-ye.png)
+
+這裡先用macro判斷CONFIG_PGTABLE_LEVELS是否大於4(p4d table是否有真正使用)
+在我們情況下使用4 level轉換，故實際function為下方349行而非337行。
+
+ `/ arch / x86 / include / asm / pgtable_types.h`
+![image](https://hackmd.io/_uploads/Hkym9MRZJx.png)
+
+
+![image](https://hackmd.io/_uploads/ry2Q9fAZye.png)
+
+
+**此處的查詢使用的pgd entry為第一層轉換出來(p4d=pgd)，透過virtual address來指向一個pgd entry的pointer**
+
+
+
+
+
+### __va() trace code:
+
+`/ arch / x86 / include / asm / page.h`
+
+![image](https://hackmd.io/_uploads/ryNswz0Zyg.png)
+
+
+透過將physical address加上`PAGE_OFFSET`，也就是加上kernel space virtual address的啟始位置藉此得到透過偏移量轉換的virtual address.
+
+![image](https://hackmd.io/_uploads/BJDTAzA-yx.png)
+
+###  第四層轉換PMD 
+>目標 : 使用*pud與pmd index找到之PMD entry的virtual address
+
+**<font size = 4>程式碼:</font>**
+```c
+pmd = pmd_offset(pud, vaddr);
+```
+
+
+
+**<font size = 4>trace code:</font>**
+
+```c
+//arch/x86//include/linux/pgtable.h line 106
+/* Find an entry in the second-level page table.. */
+#ifndef pmd_offset
+static inline pmd_t *pmd_offset(pud_t *pud, unsigned long address)
+{
+        return pud_pgtable(*pud) + pmd_index(address);
+}
+#define pmd_offset pmd_offset
+```
+![image](https://hackmd.io/_uploads/HyCovzRWke.png)
+
+
+這裡傳入的pud是透過virtual address指向一個pud entry
+![image](https://hackmd.io/_uploads/ryxTvMAZyx.png)
+
+可以看到這裡一樣會檢查判斷CONFIG_PGTABLE_LEVELS是否大於3(pud table是否有啟用)
+![image](https://hackmd.io/_uploads/Bk3Tvf0bJg.png)
+
+
+這裡因為我們`CONFIG_PGTABLE_LEVELS = 4`，故執行的是363行而不是375行的`native_pud_val()`
+
+
+###  第五層轉換PTE 
+>目標 : 使用*pmd與pte index找到之PTE entry的virtual address
+
+**<font size = 4>程式碼:</font>**
+```c
+pte = pte_offset_kernel(pmd, vaddr);
+```
+
+**<font size = 4>trace code:</font>**
+
+```c
+// include/linux/pgtable.h line 88
+
+#ifndef pte_offset_kernel
+static inline pte_t *pte_offset_kernel(pmd_t *pmd, unsigned long address)
+{
+        return (pte_t *)pmd_page_vaddr(*pmd) + pte_index(address);
+}
+#define pte_offset_kernel pte_offset_kernel
+#endif
+```
+
+`/ arch / x86 / include / asm / pgtable.h`
+![image](https://hackmd.io/_uploads/BJ2CvfRb1x.png)
+
+
+
+
+
+
+### 由PTE table找到實體記憶體位置
+>目標 : 由*pte與pte index找到pte entry中存放的physical address
+
+**<font size = 4>程式碼:</font>**
+```c=64
+page_addr = pte_val(*pte) & PTE_PFN_MASK;
+page_offset = vaddr & ~PAGE_MASK;
+paddr = page_addr | page_offset;
+```
+
+**<font size = 4>trace code:</font>**
+
+![image](https://hackmd.io/_uploads/Syay_GAZ1e.png)
+
+![image](https://hackmd.io/_uploads/SkQlOGAWJx.png)
+
+
+這裡透過的`pte_val()`得到pte table entry中的內容。
+
+
+
+
+
+
+
+
+## 計算physical address
+
+:::success
+**<font color = "green">以實際例子介紹line 64~66</font>**
 
 **<font size = 4>新增test.c</font>**
 
@@ -376,7 +571,7 @@ page_addr = pte_val(*pte) & PTE_PFN_MASK;
 
 ```c=65
 page_offset = vaddr & ~PAGE_MASK;
-```
+````
 `page_offset` = `0x7fffd5bd1544` & `0x0000000000000FFF` = `0x544`  
 得到 **physical page frame的offset**
 
@@ -473,7 +668,8 @@ system call 對應的實作，kernel 中通常會用 sys 開頭來代表 system 
 ## <font color = "green">case 1:</font> Array store in bss segment 
 ```c
 // global variable
-int a[2000000];   //store in bss segment same as  int a[2000000] = {0}; 
+int a[2000000];   // store in bss segment,
+                  // same as  int a[2000000] = {0}; 
 ```
 **執行結果:**  
 ![image](https://hackmd.io/_uploads/Hy2hMHjZJg.png)
@@ -509,7 +705,7 @@ a[15352] = 1;     // occur page fault, load to phy_mem
 ```
 
 因為page size = 4KB，且一個int 4 bytes，而我們使用64位元架構，
-因此page table entries size = 8 bytes(存兩個array element = 8 bytes)，因此：$$\dfrac{4KB}{8B} = \dfrac{2^{12}}{2^3} = 2^9 = 512$$
+因此page table entries size = 8 bytes(存兩個int element = 8 bytes)，因此：$$\dfrac{4KB}{8B} = \dfrac{2^{12}}{2^3} = 2^9 = 512$$
 證明也是64位元架構page table entries 為512個
 
 由此證明老師上課講解的內容
@@ -537,9 +733,10 @@ BSS segment 存放的資料為 **uninitialized global variable (initialized with
 ```
 // global variables
 
-int a[100];        // bss segment
-int a[100] = {0};  // bss segment
-int a[100] = {1};  // Data segment
+int a[100];               // bss segment
+int a[100] = {0};         // bss segment
+static int global_var2;   // bss segment
+int a[100] = {1};         // Data segment
 ```
 
 
@@ -604,50 +801,90 @@ asmlinkage long sys_my_get_physical_addresses(void *ptr);
 * `__VA_ARGS__` 代表傳入的參數
 
 
-## <font color = "#008000">What is `pud_pgtable(*pud)`?</font>
-
-根據 [bootlin](https://elixir.bootlin.com/linux/v5.15.137/source/arch/arc/include/asm/pgtable-levels.h#L136)
-```c
-#define pud_pgtable(pud)	((pmd_t *)(pud_val(pud) & PAGE_MASK))
-```
-這個Macro的作用是回傳一個 `pmd_t *`的structure pointer，  
-指向`pmd`（下一層）的page table base address。  
-
-其中：
-
-* `pud_val()`： 根據 [bootlin](https://elixir.bootlin.com/linux/v5.15.137/source/arch/arc/include/asm/page.h#L50) 
-```c
-#define pud_val(x)      	((x).pud)
-```
-`pud_t` 是一個 `struct`，`.pud` 是其內部的成員，用來存取這個page的實際值
-* `PAGE_MASK` 一樣是`0xFFFFFFFFFFFFF000`因為page size 為 4KB
-
-因此`pud_val(pud)`去`pud` page table中存值並且和`PAGE_MASK`做`&` 取得`pmd` page table base address ，並且回傳以`pmd_t *`的struct  
-
-以此類推到`p4d_pgtable()`, `pmd_page_vaddr()`
+## <font color= "#008000">How does the kernel set register `cr3`</font>
+refrence: [stackoverflow](https://stackoverflow.com/questions/45239165/how-does-the-kernel-set-register-cr3)
 
 
-## <font color= "#008000">How to get `pgd_index`?</font>
-根據 [bootlin](https://elixir.bootlin.com/linux/v5.15.137/source/include/linux/pgtable.h#L85) 
-```c
-#ifndef pgd_index
-/* Must be a compile-time constant, so implement it as a macro */
-#define pgd_index(a)        (((a) >> PGDIR_SHIFT) & (PTRS_PER_PGD - 1))
-#endif
-```
-其中
-* `#define pgd_index(a)`：定義 `pgd_index` Macro，接受一個參數 `a`，代表一個virtual address
-* `(((a) >> PGDIR_SHIFT) & (PTRS_PER_PGD - 1))`：這是用來計算 `a` 在 PGD 中的index的表達式。
+Stackoverflow Reply:
 
-**<font size = 4>舉例：</font>**  
-在x86_64架構的 `PGDIR_SHIFT` 為 39 (48 - 9)，
-且`PTRS_PER_PGD` 為 512，那麼 `pgd_index(a)` 的操作流程如下：
+    the page tables are found in kernel address space and the kernel keeps a close track of the virtual->physical mapping there.
 
-* 將虛擬地址 `a` 右移 39 位，提取出對應 PGD 的高位部分
-* 將結果與 `511`（`PTRS_PER_PGD - 1`）做 bitwise `&`，確保index在有效範圍內
 
-得到的結果即為 virtual address `a` 的 `pgd_index`，
-並且可以依此類推到 `p4d_offset`、`pud_index`、`pmd_index`的計算方法
+    Linux differentiates between two types of virtual addresses in the kernel:
+
+    Kernel virtual addresses - which can map (conceptually) to any physical address; and
+
+    Kernel logical addresses - which are virtual addresses that have a linear mapping to physical addresses
+
+
+
+    The kernel places the page tables in logical addresses, so you only need to focus on those for this discussion.
+
+    Mapping a logical address to its corresponding physical one requires only the subtraction of a constant (see e.g. the __pa macro in the Linux source code).
+
+    For example, on x86, physical address 0 corresponds to logical address 0xC0000000, and physical address 0x8000 corresponds to logical address 0xC0008000.
+
+    So once the kernel places the page tables in a particular logical address, it can easily calculate which physical address it corresponds to.
+
+
+
+
+kernel有兩種虛擬記憶體機制:Kernel virtual addresses與Kernel logical addresses，page table存放區域使用的是Kernel logical addresses機制(簡單的偏移量關係可以實現更快速的虛擬位置實體位置轉換)。
+
+
+透過bootlin trace code:
+轉換kernel logical address至physical address是透過__pa()
+
+
+`/ arch / x86 / include / asm / page.h`
+
+![image](https://hackmd.io/_uploads/B1vQtMR-Jg.png)
+
+
+繼續進行trace code
+
+![image](https://hackmd.io/_uploads/S1QEKfCWJe.png)
+
+
+page_32.h中
+
+![image](https://hackmd.io/_uploads/SyBBKG0bJx.png)
+
+
+在32位元中__pa()透過將physical address減去PAGE_OFFSET 
+
+
+page_64.h中
+
+![image](https://hackmd.io/_uploads/rJkIYfA-ke.png)
+
+
+
+![image](https://hackmd.io/_uploads/Hy48YGAWkg.png)
+
+
+
+
+
+當 x < y 時，這表示 x 是一個低於內核映射起始地址的虛擬地址。這種情況下，y 會是一個負值（在無符號長整型中，這會導致進位）。為了計算出正確的物理地址，我們需要將 (__START_KERNEL_map - PAGE_OFFSET) 加到 y 上。
+
+__START_KERNEL_map 是內核映射的起始地址，而 PAGE_OFFSET 是內核虛擬地址空間的偏移量。通過將 (__START_KERNEL_map - PAGE_OFFSET) 加到 y 上，我們可以得到一個正確的物理地址，這樣可以確保計算出的物理地址是正確的。
+
+撰寫x = y + (__START_KERNEL_map - PAGE_OFFSET);是為了讓系統可以兼容使用PAGE_OFFSET機制而不是__START_KERNEL_map機制來轉換virtual address的程式
+
+
+
+## <font color= "#008000">`CR2`暫存器作用?</font>
+
+CR2 暫存器的作用：
+
+在x86架構下，當發生頁錯（page fault）時，處理器會自動將導致頁錯的虛擬地址寫入 cr2 暫存器。這個虛擬地址就是系統試圖存取但未映射到物理內存的地址。
+Page Fault 處理流程：
+
+當頁表條目（page table entry，PTE）中的 present 位（flag）為 0 時，表示該頁未映射到物理內存，因此會觸發頁錯中斷（page fault）。
+頁錯處理程式（page fault handler）會讀取 cr2 中的虛擬地址，從而知道是哪個地址引發了頁錯。
+內核在頁錯處理過程中可能會在物理內存中找到一個可用的頁框，然後從磁碟（或其他二級存儲）將需要的頁面內容載入到這個頁框中。
+最後，內核使用 cr2 中的虛擬地址來更新相應的頁表條目，使該虛擬地址映射到剛載入的物理頁框，並將 present 標誌設為 1，以便未來的訪問不會再觸發頁錯。
 
 # <font color="#F7A004">Problems</font>
 
@@ -659,6 +896,9 @@ asmlinkage long sys_my_get_physical_addresses(void *ptr);
 以上圖為例，physical address 明顯超出記憶體範圍，原因如下圖所述，並不是所有的bit都為實體記憶體位址，前面0x8000...都是NX bit或是其他功能，所以必須在計算physical address時使用`PTE_PFN_MASK`過濾掉第52 bits以上及後面12 bits，得到的才是實際physical frame number，加上offset 才會是physical address  
 
 ![image](https://hackmd.io/_uploads/r1iZv-IWJe.png)
+
+
+
 
 
 # <font color="#F7A004">Referenced</font>
