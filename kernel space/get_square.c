@@ -2,6 +2,8 @@
 #include <linux/syscalls.h>     
 #include <linux/uaccess.h>      // For copy_from_user and copy_to_user
 
+// use this system call to test copy_from_user and copy_to_user
+
 SYSCALL_DEFINE2(get_square, int __user *, input, int __user *, output) {
     int kernel_input;
     int result;
