@@ -1,12 +1,14 @@
 # <font color="#F7A004">Intro</font>
 
-**<font size = 4>2024 Fall NCU Linux OS Project 1</font>**
+**<font size = 4>2024 Fall NCU Linux OS Project 1</font>**  
 
 
 * Add a system call that get physical addresses from virtual addresses
 * 介紹 `copy_from_user` 及 `copy_to_user` 使用方法  
 * 使用Copy on Write 機制來驗證system call 正確呼叫  
 * 介紹 Demand Paging 在 memory 中的使用時機  
+
+Demo問題可參考[這篇](https://hackmd.io/@gary7102/ByQDR51M1e)，[github](https://github.com/gary7102/Linux-add-a-system-call.git)
 
 **<font size = 4>Environment</font>**
 ```
@@ -642,7 +644,9 @@ system call 對應的實作，kernel 中通常會用 sys 開頭來代表 system 
 這定義了我們system call的prototype，`asmlinkage`代表我們的參數都可以在stack裡取用，
 當 assembly code 呼叫 C function，並且是以 stack 方式傳參數時，在 C function 的 prototype 前面就要加上 `asmlinkage`
 
+# <font color="#F7A004">Compile Kernel</font>
 
+請參考 [add a system call](https://hackmd.io/aist49C9R46-vaBIlP3LDA?view)
 
 # <font color="#F7A004">Copy on Write</font>
 
@@ -741,7 +745,8 @@ int a[100] = {1};         // Data segment
 
 
 ## <font color=" #008000">mm_struct</font>
-**<font color = "#0000ff"><font size = 4>What is `mm_struct`?</font></font>**
+
+**<font size = 5>What is `mm_struct`?</font>**
 
 task_struct 被稱為 process descriptor，因為其記錄了這個 process所有的context(ex: PID, scheduling info)，其中有一個被稱為 memory descriptor的結構 `mm_struct`，記錄了Linux視角下管理process address的資訊(ex: page tables)。  
 ![30528e172c325228bf23dec7772f0c73](https://hackmd.io/_uploads/SkgMiSY1Jg.png)  
@@ -752,20 +757,27 @@ task_struct 被稱為 process descriptor，因為其記錄了這個 process所�
 By assigning `current->mm` to this pointer, now can access to the memory-related information (ex: page tables) for the process that is running the system call.
 
 
-**<font color = "#0000ff"><font size = 4>What is `task_struct`?</font></font>**  
+**<font size = 5>What is `task_struct`?</font>**  
 
-根據 [bootlin](https://elixir.bootlin.com/linux/v5.15.137/source/include/linux/sched.h#L721) `task_struct` is a key data structure in the Linux kernel that represents a process or thread. It holds all the information related to a process.   
+根據 [bootlin](https://elixir.bootlin.com/linux/v5.15.137/source/include/linux/sched.h#L721) 
 
-其中比較重要的有:  
+在 Linux 中，Process Descriptor的data structure是 `task_struct`，每個正在運行或等待的process都對應一個 `task_struct`  
 
-`pid_t pid`: The process ID.  
-`pid_t tgid`: The thread group ID, which is the same as pid for the main thread of a process.  
-`struct mm_struct *mm`: Pointer to the memory descriptor, which contains information about the process's memory mappings.  
-`struct task_struct *parent`: Pointer to the parent process.  
-`struct list_head children`: List head for tracking child processes.  
-`struct list_head sibling`: List head for linking to sibling processes.  
-`struct files_struct *files`: Pointer to the file descriptor table.  
-`unsigned int flags`: Flags that represent various attributes and settings of the process.  
+其中比較常見的有:  
+```c
+struct task_struct {
+    pid_t pid;                  // process ID
+    pid_t tgid;                 // thread ID
+    long state;                 // process state
+    struct mm_struct *mm;       // memory descriptor
+    struct files_struct *files; // 文件描述符
+    struct fs_struct *fs;       // 文件系統信息
+    int prio;                   // 優先級
+    struct cred *cred;          // 權限信息
+    struct signal_struct *signal; // 信號處理
+    // ... 
+};
+```
 
 
 ## <font color=" #008000">SYSCALL_DEFINE</font>
