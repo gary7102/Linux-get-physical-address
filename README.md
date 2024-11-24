@@ -58,7 +58,7 @@ unsigned long copy_to_user(void __user *to, const void *from, unsigned long n);
 ## Example
 
 **<font size = 4>新增一個system call 作為範例</font>**
-```c=1
+```c
 #include <linux/kernel.h>       
 #include <linux/syscalls.h>     
 #include <linux/uaccess.h>      // For copy_from_user and copy_to_user
@@ -85,7 +85,7 @@ SYSCALL_DEFINE2(get_square, int __user *, input, int __user *, output) {
 ```
 
 **<font size = 4>User code</font>**
-```c=1
+```c
 #include <stdio.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -155,7 +155,7 @@ Page table 一般來說可以分為兩種結構，32 bit cpu使用4-level(10-10-
 順序為: `pgd_t` -> `p4d_t` -> `pud_t` -> `pmd_t` -> `pte_t`
 
 其中舉例，若要查`p4d`的base address則需要`pgd_t + p4d_index`  
-``` c=1 
+``` c 
 pgd_t *pgd;
 p4d_t *p4d;
 
@@ -163,7 +163,7 @@ pgd = pgd_offset(current->mm, vaddr);
 p4d = p4d_offset(pgd, vaddr);
 ```
 同理，若要查`pte`的base address則需要`pmd_t + ptd_index`  
-```c=1
+```c
 ptd_t *pte;
 
 pte = pte_offset(pmd, vaddr);
@@ -217,7 +217,7 @@ static inline pgd_t *pgd_offset_pgd(pgd_t *pgd, unsigned long address)
 對應到前一張圖，找到前一層的Directory offset再加上當前Directory的 index，一層一層去找  
 
 不過發現`p4d_offset`的實作細節沒有出現在這，但是`pud_offset`傳入的參數卻是`p4d_t *p4d`，後來在`arch/x86/include/asm/pgtable.h line 926`中找到
-```c=926
+```c
 // arch/x86/include/asm/pgtable.h line 926
 
 /* to find an entry in a page-table-directory. */
@@ -238,7 +238,7 @@ static inline p4d_t *p4d_offset(pgd_t *pgd, unsigned long address)
 新增一個檔案叫 `project1.c`，路徑為 `kernel/project1.c`
 :::spoiler <font color = green>範例</font>
 
-```c=1
+```c
 #include <linux/syscalls.h>
 #include <linux/mm.h>
 #include <linux/highmem.h>
@@ -409,6 +409,7 @@ static inline pud_t *pud_offset(p4d_t *p4d, unsigned long address)
 在我們情況下使用4 level轉換，故實際function為下方349行而非337行。
 
  `/ arch / x86 / include / asm / pgtable_types.h`
+ 
 ![image](https://hackmd.io/_uploads/Hkym9MRZJx.png)
 
 
@@ -454,13 +455,16 @@ static inline pmd_t *pmd_offset(pud_t *pud, unsigned long address)
 }
 #define pmd_offset pmd_offset
 ```
+
 ![image](https://hackmd.io/_uploads/HyCovzRWke.png)
 
 
 這裡傳入的pud是透過virtual address指向一個pud entry
+
 ![image](https://hackmd.io/_uploads/ryxTvMAZyx.png)
 
 可以看到這裡一樣會檢查判斷CONFIG_PGTABLE_LEVELS是否大於3(pud table是否有啟用)
+
 ![image](https://hackmd.io/_uploads/Bk3Tvf0bJg.png)
 
 
@@ -490,6 +494,7 @@ static inline pte_t *pte_offset_kernel(pmd_t *pmd, unsigned long address)
 ```
 
 `/ arch / x86 / include / asm / pgtable.h`
+
 ![image](https://hackmd.io/_uploads/BJ2CvfRb1x.png)
 
 
@@ -501,7 +506,7 @@ static inline pte_t *pte_offset_kernel(pmd_t *pmd, unsigned long address)
 >目標 : 由*pte與pte index找到pte entry中存放的physical address
 
 **<font size = 4>程式碼:</font>**
-```c=64
+```c
 page_addr = pte_val(*pte) & PTE_PFN_MASK;
 page_offset = vaddr & ~PAGE_MASK;
 paddr = page_addr | page_offset;
@@ -530,7 +535,7 @@ paddr = page_addr | page_offset;
 
 **<font size = 4>新增test.c</font>**
 
-```c=1
+```c
 #include <stdio.h>
 #include <sys/syscall.h>      /* Definition of SYS_* constants */
 #include <unistd.h>
