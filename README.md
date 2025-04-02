@@ -8,7 +8,7 @@
 * 使用Copy on Write 機制來驗證system call 正確呼叫  
 * 介紹 Demand Paging 在 memory 中的使用時機  
 
-Demo問題可參考[這篇](https://hackmd.io/@gary7102/ByQDR51M1e)，[github](https://github.com/gary7102/Linux-add-a-system-call.git)，好讀版[hackmd](https://hackmd.io/@gary7102/BkMu4HKk1l)
+Demo問題可參考[這篇](https://hackmd.io/@gary7102/ByQDR51M1e)，[github](https://github.com/gary7102/Linux-add-a-system-call.git)
 
 **<font size = 4>Environment</font>**
 ```
@@ -58,7 +58,7 @@ unsigned long copy_to_user(void __user *to, const void *from, unsigned long n);
 ## Example
 
 **<font size = 4>新增一個system call 作為範例</font>**
-```c
+```c=1
 #include <linux/kernel.h>       
 #include <linux/syscalls.h>     
 #include <linux/uaccess.h>      // For copy_from_user and copy_to_user
@@ -85,7 +85,7 @@ SYSCALL_DEFINE2(get_square, int __user *, input, int __user *, output) {
 ```
 
 **<font size = 4>User code</font>**
-```c
+```c=1
 #include <stdio.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -155,7 +155,7 @@ Page table 一般來說可以分為兩種結構，32 bit cpu使用4-level(10-10-
 順序為: `pgd_t` -> `p4d_t` -> `pud_t` -> `pmd_t` -> `pte_t`
 
 其中舉例，若要查`p4d`的base address則需要`pgd_t + p4d_index`  
-``` c 
+``` c=1 
 pgd_t *pgd;
 p4d_t *p4d;
 
@@ -746,6 +746,15 @@ int a[100];               // bss segment
 int a[100] = {0};         // bss segment
 static int global_var2;   // bss segment
 int a[100] = {1};         // Data segment
+```
+
+```
+變數宣告位置	       是否初始化	  存放區段
+全域變數	                未初始化	.bss segment
+全域變數	                有初始化	.data segment
+靜態變數（static）	 未初始化	.bss segment
+靜態變數（static）	 有初始化	.data segment
+區域變數（local）	       不論是否初始化	Stack（堆疊）區域
 ```
 
 
